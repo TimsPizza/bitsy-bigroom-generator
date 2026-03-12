@@ -1,43 +1,467 @@
-@import 'tailwindcss';
+@import "tailwindcss";
+@import url("https://fonts.googleapis.com/css2?family=Inria+Sans:wght@300;400;700&family=Source+Code+Pro:wght@400;600&display=swap")
+layer(utilities);
 
-@import url('https://fonts.googleapis.com/css?family=Poppins:300,400,500,600,700,800,900&display=swap')
-layer(utilities);
-@import url('https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@0,100..900;1,100..900&display=swap')
-layer(utilities);
-@import url('https://fonts.googleapis.com/css2?family=Inria+Sans:ital,wght@0,300;0,400;0,700;1,300;1,400;1,700&display=swap')
-layer(utilities);
-@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400..900&display=swap')
-layer(utilities);
-@import url('https://fonts.googleapis.com/css2?family=Roboto:ital,wght@0,100;0,300;0,400;0,500;0,700;0,900;1,100;1,300;1,400;1,500;1,700;1,900&display=swap')
-layer(utilities);
-@import url('https://fonts.googleapis.com/css2?family=Raleway:ital,wght@0,100..900;1,100..900&family=Roboto:ital,wght@0,100;0,300;0,400;0,500;0,700;0,900;1,100;1,300;1,400;1,500;1,700;1,900&display=swap')
-layer(utilities);
-@import url('https://fonts.googleapis.com/css2?family=Open+Sans:ital,wght@0,300..800;1,300..800&family=Raleway:ital,wght@0,100..900;1,100..900&family=Roboto:ital,wght@0,100;0,300;0,400;0,500;0,700;0,900;1,100;1,300;1,400;1,500;1,700;1,900&display=swap')
-layer(utilities);
-@import url('https://fonts.googleapis.com/css2?family=Nunito:ital,wght@0,200..1000;1,200..1000&family=Open+Sans:ital,wght@0,300..800;1,300..800&family=Raleway:ital,wght@0,100..900;1,100..900&family=Roboto:ital,wght@0,100;0,300;0,400;0,500;0,700;0,900;1,100;1,300;1,400;1,500;1,700;1,900&display=swap')
-layer(utilities);
-@import url('https://fonts.googleapis.com/css2?family=Lato:ital,wght@0,100;0,300;0,400;0,700;0,900;1,100;1,300;1,400;1,700;1,900&family=Nunito:ital,wght@0,200..1000;1,200..1000&family=Open+Sans:ital,wght@0,300..800;1,300..800&family=Raleway:ital,wght@0,100..900;1,100..900&family=Roboto:ital,wght@0,100;0,300;0,400;0,500;0,700;0,900;1,100;1,300;1,400;1,500;1,700;1,900&display=swap')
-layer(utilities);
-@import url('https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&family=Lato:ital,wght@0,100;0,300;0,400;0,700;0,900;1,100;1,300;1,400;1,700;1,900&family=Nunito:ital,wght@0,200..1000;1,200..1000&family=Open+Sans:ital,wght@0,300..800;1,300..800&family=Raleway:ital,wght@0,100..900;1,100..900&family=Roboto:ital,wght@0,100;0,300;0,400;0,500;0,700;0,900;1,100;1,300;1,400;1,500;1,700;1,900&display=swap')
-layer(utilities);
-@import url('https://fonts.googleapis.com/css2?family=Source+Code+Pro:ital,wght@0,200..900;1,200..900&display=swap')
-layer(utilities);
-@import url('https://fonts.googleapis.com/css2?family=Fira+Code:wght@300..700&display=swap')
-layer(utilities);
-@import url('https://fonts.googleapis.com/css2?family=LXGW+WenKai+TC:wght@300&display=swap')
-layer(utilities);
+:root {
+  color: #1a170f;
+  font-family: "Inria Sans", sans-serif;
+  font-size: 16px;
+  line-height: 1.4;
+  background:
+    radial-gradient(
+      circle at top left,
+      rgba(252, 202, 118, 0.24),
+      transparent 26%
+    ),
+    radial-gradient(
+      circle at top right,
+      rgba(70, 115, 81, 0.18),
+      transparent 24%
+    ),
+    linear-gradient(180deg, #f7f0e1 0%, #efe2c8 100%);
+}
 
 * {
   box-sizing: border-box;
-  margin: 0;
-  padding: 0;
 }
 
-:root {
-  font-size: 16px;
-}
-
+html,
+body,
 #root {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  color: #1a170f;
+}
+
+button,
+input,
+textarea {
+  font: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+.app-shell {
   min-height: 100vh;
-  min-width: 100vw;
+  padding: 2rem;
+}
+
+.hero-panel {
+  max-width: 112rem;
+  margin: 0 auto 1.5rem;
+  padding: 1.75rem 2rem;
+  border: 1px solid rgba(38, 32, 22, 0.16);
+  border-radius: 1.5rem;
+  background: rgba(255, 248, 235, 0.72);
+  box-shadow: 0 20px 60px rgba(62, 44, 16, 0.12);
+  backdrop-filter: blur(8px);
+}
+
+.hero-panel h1 {
+  margin: 0.2rem 0 0.8rem;
+  font-family:
+    "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Georgia, serif;
+  font-size: clamp(1rem, 2vw, 1rem);
+  font-weight: 500;
+  line-height: 0.9;
+  letter-spacing: -0.035em;
+}
+
+.hero-copy {
+  max-width: 56rem;
+  margin: 0;
+  font-size: 1.02rem;
+}
+
+.eyebrow,
+.subtle-label,
+.panel-note,
+.editor-canvas-caption,
+.material-card span,
+.selected-material-card p,
+.stats-grid span,
+.start-room-card p,
+.editor-stage-status span {
+  font-family: "Source Code Pro", monospace;
+}
+
+.eyebrow {
+  margin: 0;
+  color: #8d4e17;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  font-size: 0.78rem;
+}
+
+.workspace-stage {
+  max-width: 112rem;
+  margin: 0 auto;
+}
+
+.panel {
+  padding: 1.2rem;
+  border: 1px solid rgba(38, 32, 22, 0.14);
+  border-radius: 1.25rem;
+  background: rgba(255, 251, 243, 0.84);
+  box-shadow: 0 12px 32px rgba(62, 44, 16, 0.08);
+}
+
+.compact-panel {
+  padding: 1rem;
+}
+
+.stack-gap > * + * {
+  margin-top: 1rem;
+}
+
+.toolbox-grid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: minmax(18rem, 1.05fr) minmax(18rem, 0.9fr) minmax(
+      24rem,
+      1.4fr
+    );
+  align-items: start;
+}
+
+.materials-grid-panel {
+  min-height: 100%;
+}
+
+.panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+}
+
+.panel-header h2 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.panel-note {
+  margin: 0.25rem 0 0;
+  max-width: 38rem;
+  font-size: 0.8rem;
+  color: #5e5646;
+}
+
+.source-input {
+  width: 100%;
+  min-height: 16rem;
+  padding: 0.9rem 1rem;
+  border: 1px solid rgba(38, 32, 22, 0.16);
+  border-radius: 1rem;
+  background: #fffaf1;
+  font-family: "Source Code Pro", monospace;
+  resize: vertical;
+}
+
+.compact-input {
+  min-height: 11rem;
+}
+
+.compact-export {
+  min-height: 18rem;
+}
+
+.button,
+.material-card {
+  border: 1px solid rgba(38, 32, 22, 0.14);
+  color: #1a170f;
+  transition:
+    transform 140ms ease,
+    border-color 140ms ease,
+    background 140ms ease;
+}
+
+.button {
+  padding: 0.65rem 1rem;
+  border-radius: 999px;
+  background: #f4e6ce;
+}
+
+.button:hover,
+.material-card:hover {
+  transform: translateY(-1px);
+  border-color: rgba(38, 32, 22, 0.34);
+}
+
+.button.accent {
+  background: #d96d2d;
+  color: #fff8f0;
+}
+
+.button.danger {
+  background: #a94122;
+  color: #fff8f0;
+}
+
+.button-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.control-grid,
+.stats-grid {
+  display: grid;
+  gap: 0.8rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.control-grid label,
+.toggle-row {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.inline-toggle {
+  justify-items: end;
+}
+
+.control-grid input {
+  width: 100%;
+  padding: 0.7rem 0.8rem;
+  border: 1px solid rgba(38, 32, 22, 0.16);
+  border-radius: 0.9rem;
+  background: #fffaf1;
+}
+
+.stats-grid > div,
+.start-room-card {
+  padding: 0.85rem;
+  border-radius: 1rem;
+  background: rgba(245, 230, 206, 0.64);
+}
+
+.stats-grid strong,
+.start-room-card strong {
+  display: block;
+  font-size: 1.2rem;
+}
+
+.stats-grid span,
+.start-room-card p,
+.editor-stage-status span {
+  font-size: 0.74rem;
+  color: #5e5646;
+}
+
+.start-room-card p {
+  margin: 0.3rem 0 0;
+}
+
+.message-strip {
+  padding: 0.75rem 0.9rem;
+  border-radius: 0.9rem;
+  font-size: 0.92rem;
+}
+
+.message-strip.warning {
+  background: rgba(250, 220, 150, 0.56);
+}
+
+.message-strip.error {
+  background: rgba(226, 137, 93, 0.18);
+  color: #912f15;
+}
+
+.material-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(7rem, 1fr));
+  gap: 0.8rem;
+  overflow: auto;
+}
+
+.compact-material-grid {
+  max-height: 20rem;
+}
+
+.material-card {
+  display: grid;
+  gap: 0.45rem;
+  padding: 0.75rem 0.6rem;
+  border-radius: 1rem;
+  background: #fff7e8;
+}
+
+.material-select {
+  display: grid;
+  gap: 0.45rem;
+  justify-items: center;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  text-align: center;
+}
+
+.material-card strong {
+  font-size: 0.88rem;
+}
+
+.material-card span {
+  font-size: 0.72rem;
+  color: #5e5646;
+}
+
+.material-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  padding-top: 0.2rem;
+  border-top: 1px solid rgba(38, 32, 22, 0.08);
+  font-family: "Source Code Pro", monospace;
+  font-size: 0.72rem;
+  color: #5e5646;
+}
+
+.material-card.active {
+  border-color: #d96d2d;
+  background: #ffe6d6;
+  box-shadow: inset 0 0 0 1px rgba(217, 109, 45, 0.22);
+}
+
+.selected-material {
+  padding: 0.95rem;
+  border-radius: 1rem;
+  background: rgba(244, 230, 206, 0.64);
+}
+
+.selected-material-card {
+  display: flex;
+  gap: 0.9rem;
+  align-items: center;
+  margin-top: 0.5rem;
+}
+
+.selected-material-card strong {
+  display: block;
+}
+
+.selected-material-card p {
+  margin: 0.2rem 0 0;
+  color: #5e5646;
+  font-size: 0.76rem;
+}
+
+.empty-preview {
+  width: 64px;
+  height: 64px;
+  border-radius: 0.8rem;
+  background: rgba(38, 32, 22, 0.08);
+}
+
+.editor-stage-panel {
+  min-height: 75vh;
+}
+
+.editor-stage-header {
+  align-items: center;
+}
+
+.editor-stage-status {
+  display: grid;
+  gap: 0.3rem;
+  justify-items: end;
+}
+
+.canvas-scroller {
+  overflow: auto;
+  padding: 0.4rem;
+  border-radius: 1rem;
+  background: linear-gradient(
+    180deg,
+    rgba(86, 76, 56, 0.1),
+    rgba(86, 76, 56, 0.04)
+  );
+}
+
+.full-stage-scroller {
+  min-height: 64vh;
+}
+
+.editor-canvas-shell {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.editor-canvas {
+  display: block;
+  border: 1px solid rgba(38, 32, 22, 0.12);
+  border-radius: 1rem;
+  background: #f8f2e8;
+}
+
+.editor-canvas.start-mode {
+  cursor: crosshair;
+}
+
+.editor-canvas-caption {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.85rem;
+  font-size: 0.74rem;
+  color: #5e5646;
+}
+
+.confirm-dialog {
+  width: min(28rem, calc(100vw - 2rem));
+  padding: 0;
+  border: 1px solid rgba(38, 32, 22, 0.14);
+  border-radius: 1.25rem;
+  background: rgba(255, 250, 241, 0.98);
+  box-shadow: 0 24px 64px rgba(24, 18, 10, 0.22);
+}
+
+.confirm-dialog::backdrop {
+  background: rgba(26, 23, 15, 0.4);
+  backdrop-filter: blur(3px);
+}
+
+.confirm-dialog-content {
+  display: grid;
+  gap: 0.85rem;
+  padding: 1.25rem;
+}
+
+.confirm-dialog-content h2 {
+  margin: 0;
+  font-size: 1.15rem;
+}
+
+.confirm-dialog-content p {
+  margin: 0;
+  color: #5e5646;
+}
+
+.confirm-dialog-actions {
+  justify-content: flex-end;
+}
+
+@media (max-width: 1100px) {
+  .app-shell {
+    padding: 1rem;
+  }
+
+  .toolbox-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .editor-stage-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .editor-stage-status {
+    justify-items: start;
+  }
 }
