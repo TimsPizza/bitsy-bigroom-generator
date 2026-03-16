@@ -11,12 +11,26 @@ export type BitsyTile = {
   isWall: boolean | null;
 };
 
+export type BitsyRoomSpritePlacement = {
+  id: string;
+  x: number;
+  y: number;
+};
+
+export type BitsyRoomItemPlacement = {
+  id: string;
+  x: number;
+  y: number;
+};
+
 export type BitsyRoom = {
   id: string;
   keyword: "ROOM" | "SET";
   tilemap: string[][];
   walls: string[];
   exits: GeneratedExit[];
+  spritePlacements: BitsyRoomSpritePlacement[];
+  itemPlacements: BitsyRoomItemPlacement[];
   pal: string | null;
   name: string | null;
   ava: string | null;
@@ -41,6 +55,33 @@ export type BitsyAvatarStartSource =
       };
     };
 
+export type BitsySprite = {
+  id: string;
+  name: string | null;
+  drawingId: string | null;
+  frames: DrawingFrame[];
+  isAvatar: boolean;
+  blockRange: {
+    start: number;
+    end: number;
+  };
+  placementSource: "room" | "sprite_pos" | null;
+};
+
+export type BitsyItem = {
+  id: string;
+  name: string | null;
+  drawingId: string | null;
+  frames: DrawingFrame[];
+};
+
+export type BitsyEntityPlacement = {
+  id: string;
+  roomId: string;
+  x: number;
+  y: number;
+};
+
 export type BitsySource = {
   raw: string;
   lines: string[];
@@ -52,8 +93,12 @@ export type BitsySource = {
   } | null;
   rooms: BitsyRoom[];
   tiles: BitsyTile[];
+  sprites: BitsySprite[];
+  items: BitsyItem[];
   avatarStart: BitsyAvatarStart | null;
   avatarStartSource: BitsyAvatarStartSource | null;
+  spritePlacements: BitsyEntityPlacement[];
+  itemPlacements: BitsyEntityPlacement[];
 };
 
 export type GridCell = {
@@ -75,12 +120,30 @@ export type GeneratedExit = {
   destY: number;
 };
 
+export type RoomSlot = {
+  roomId: string;
+  templateRoomId: string | null;
+};
+
+export type WorldPoint = {
+  x: number;
+  y: number;
+};
+
+export type WorldEntityPlacement = {
+  id: string;
+  x: number;
+  y: number;
+};
+
 export type GeneratedRoom = {
   id: string;
   sourceRoom: BitsyRoom | null;
   tilemap: string[][];
   walls: string[];
   exits: GeneratedExit[];
+  spritePlacements: BitsyRoomSpritePlacement[];
+  itemPlacements: BitsyRoomItemPlacement[];
   avatarStart: { x: number; y: number } | null;
 };
 

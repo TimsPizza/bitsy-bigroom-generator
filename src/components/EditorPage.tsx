@@ -1,14 +1,17 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { EditorCanvas } from "@/components/EditorCanvas";
 import { TilePreview } from "@/components/TilePreview";
 import { useEditorStore } from "@/store/editorStore";
 
 export function EditorPage() {
-  const [interactionMode, setInteractionMode] = useState<"paint" | "start">(
-    "paint",
-  );
+  const [interactionMode, setInteractionMode] = useState<
+    "paint" | "avatar" | "sprite" | "item" | "rearrange"
+  >("paint");
   const [showClearDialog, setShowClearDialog] = useState(false);
+  const [selectedRoomIndex, setSelectedRoomIndex] = useState<number | null>(null);
+  const [selectedSpriteId, setSelectedSpriteId] = useState<string | null>(null);
+  const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
   const sourceText = useEditorStore((state) => state.sourceText);
   const importedSource = useEditorStore((state) => state.importedSource);
   const warnings = useEditorStore((state) => state.warnings);
@@ -18,15 +21,15 @@ export function EditorPage() {
   const height = useEditorStore((state) => state.height);
   const roomSize = useEditorStore((state) => state.roomSize);
   const tileBehavior = useEditorStore((state) => state.tileBehavior);
-  const startCell = useEditorStore((state) => state.startCell);
+  const roomSlots = useEditorStore((state) => state.roomSlots);
+  const avatarPlacement = useEditorStore((state) => state.avatarPlacement);
+  const spritePlacements = useEditorStore((state) => state.spritePlacements);
+  const itemPlacements = useEditorStore((state) => state.itemPlacements);
   const currentMaterialId = useEditorStore((state) => state.currentMaterialId);
   const setSourceText = useEditorStore((state) => state.setSourceText);
   const importGameData = useEditorStore((state) => state.importGameData);
-  const setCurrentMaterialId = useEditorStore(
-    (state) => state.setCurrentMaterialId,
-  );
+  const setCurrentMaterialId = useEditorStore((state) => state.setCurrentMaterialId);
   const setTileBlocking = useEditorStore((state) => state.setTileBlocking);
-  const setStartCell = useEditorStore((state) => state.setStartCell);
   const resizeWorld = useEditorStore((state) => state.resizeWorld);
   const clearMap = useEditorStore((state) => state.clearMap);
   const buildExport = useEditorStore((state) => state.buildExport);
@@ -38,40 +41,95 @@ export function EditorPage() {
     String(Math.max(1, height / roomSize)),
   );
   const [copyLabel, setCopyLabel] = useState("Copy export");
-  const paintableTiles =
-    importedSource?.tiles.filter((tile) => tile.id !== "0") ?? [];
+  const paintableTiles = importedSource?.tiles.filter((tile) => tile.id !== "0") ?? [];
+  const avatarDefinition =
+    importedSource?.sprites.find((sprite) => sprite.isAvatar) ?? null;
+  const spriteDefinitions =
+    importedSource?.sprites.filter((sprite) => !sprite.isAvatar) ?? [];
+  const itemDefinitions = importedSource?.items ?? [];
+
+  useEffect(() => {
+    if (
+      selectedSpriteId &&
+      spriteDefinitions.some((sprite) => sprite.id === selectedSpriteId)
+    ) {
+      return;
+    }
+
+    setSelectedSpriteId(spriteDefinitions[0]?.id ?? null);
+  }, [selectedSpriteId, spriteDefinitions]);
+
+  useEffect(() => {
+    if (selectedItemId && itemDefinitions.some((item) => item.id === selectedItemId)) {
+      return;
+    }
+
+    setSelectedItemId(itemDefinitions[0]?.id ?? null);
+  }, [itemDefinitions, selectedItemId]);
+
+  useEffect(() => {
+    if (selectedRoomIndex !== null && selectedRoomIndex < roomSlots.length) {
+      return;
+    }
+
+    setSelectedRoomIndex(null);
+  }, [roomSlots.length, selectedRoomIndex]);
 
   const selectedMaterial =
     paintableTiles.find((tile) => tile.id === currentMaterialId) ?? null;
+  const selectedSprite =
+    spriteDefinitions.find((sprite) => sprite.id === selectedSpriteId) ?? null;
+  const selectedItem =
+    itemDefinitions.find((item) => item.id === selectedItemId) ?? null;
+  const selectedRoom = selectedRoomIndex !== null ? roomSlots[selectedRoomIndex] ?? null : null;
 
-  const startMarker = useMemo(() => {
-    if (!startCell) {
-      return { roomIndex: null, cell: null as { x: number; y: number } | null };
+  const avatarMarker = useMemo(() => {
+    if (!avatarPlacement) {
+      return { roomIndex: null, cell: null as typeof avatarPlacement };
     }
 
     const chunkColumns = Math.max(1, Math.ceil(width / roomSize));
-    const roomX = Math.floor(startCell.x / roomSize);
-    const roomY = Math.floor(startCell.y / roomSize);
+    const roomX = Math.floor(avatarPlacement.x / roomSize);
+    const roomY = Math.floor(avatarPlacement.y / roomSize);
 
     return {
       roomIndex: roomY * chunkColumns + roomX,
-      cell: startCell,
+      cell: avatarPlacement,
     };
-  }, [roomSize, startCell, width]);
+  }, [avatarPlacement, roomSize, width]);
 
   const selectedTileBlocking =
     selectedMaterial && currentMaterialId
       ? (tileBehavior[currentMaterialId]?.blocking ?? false)
       : false;
 
+  const modeSummary =
+    interactionMode === "paint"
+      ? selectedTileBlocking
+        ? "Painting blocking tiles"
+        : "Painting passable tiles"
+      : interactionMode === "avatar"
+        ? "Click a cell to move the avatar"
+        : interactionMode === "sprite"
+          ? selectedSprite
+            ? `Click a cell to place sprite ${selectedSprite.id}`
+            : "Import a sprite definition first"
+          : interactionMode === "item"
+            ? selectedItem
+              ? `Click a cell to place item ${selectedItem.id}`
+              : "Import an item definition first"
+            : selectedRoom
+              ? `Selected room ${selectedRoom.roomId}; click another room to swap`
+              : "Click one room, then click another room to swap";
+
   return (
     <div className="app-shell">
       <section className="hero-panel">
         <p className="eyebrow">Bitsy Bigroom Generator</p>
         <h1 className="hero mt-3!">
-          Paste existing game data, pick tile materials from the imported tile
-          definitions, draw blocked walls on a larger grid, and regenerate only
-          the ROOM blocks plus their exits.
+          Import Bitsy game data, repaint room chunks, rearrange whole rooms,
+          and place avatar, sprite, and item instances without losing
+          serialization fidelity.
         </h1>
       </section>
 
@@ -91,6 +149,8 @@ export function EditorPage() {
 
                   setDraftRoomWidth(String(imported.roomColumns));
                   setDraftRoomHeight(String(imported.roomRows));
+                  setSelectedRoomIndex(null);
+                  setInteractionMode("paint");
                 }}
               >
                 Parse source
@@ -157,39 +217,90 @@ export function EditorPage() {
                     1,
                     Number.parseInt(draftRoomHeight, 10) || 1,
                   );
-                  resizeWorld(
-                    nextRoomWidth * roomSize,
-                    nextRoomHeight * roomSize,
-                  );
+                  resizeWorld(nextRoomWidth * roomSize, nextRoomHeight * roomSize);
                   setDraftRoomWidth(String(nextRoomWidth));
                   setDraftRoomHeight(String(nextRoomHeight));
+                  setSelectedRoomIndex(null);
                 }}
               >
                 Resize
               </button>
-              <button
-                className={`button ${interactionMode === "start" ? "accent" : ""}`}
-                type="button"
-                onClick={() => setInteractionMode("start")}
-              >
-                Set start
-              </button>
+            </div>
+            <div className="button-row mode-row">
               <button
                 className={`button ${interactionMode === "paint" ? "accent" : ""}`}
                 type="button"
-                onClick={() => setInteractionMode("paint")}
+                onClick={() => {
+                  setInteractionMode("paint");
+                  setSelectedRoomIndex(null);
+                }}
               >
-                Paint mode
+                Paint
               </button>
+              <button
+                className={`button ${interactionMode === "rearrange" ? "accent" : ""}`}
+                type="button"
+                onClick={() => setInteractionMode("rearrange")}
+              >
+                Rearrange
+              </button>
+              <button
+                className={`button ${interactionMode === "avatar" ? "accent" : ""}`}
+                type="button"
+                onClick={() => {
+                  setInteractionMode("avatar");
+                  setSelectedRoomIndex(null);
+                }}
+              >
+                Avatar
+              </button>
+              <button
+                className={`button ${interactionMode === "sprite" ? "accent" : ""}`}
+                type="button"
+                onClick={() => {
+                  setInteractionMode("sprite");
+                  setSelectedRoomIndex(null);
+                }}
+              >
+                Sprite
+              </button>
+              <button
+                className={`button ${interactionMode === "item" ? "accent" : ""}`}
+                type="button"
+                onClick={() => {
+                  setInteractionMode("item");
+                  setSelectedRoomIndex(null);
+                }}
+              >
+                Item
+              </button>
+            </div>
+            <div className="stats-grid">
+              <div>
+                <strong>{roomSlots.length}</strong>
+                <span>Room slots</span>
+              </div>
+              <div>
+                <strong>{spritePlacements.length}</strong>
+                <span>Placed sprites</span>
+              </div>
+              <div>
+                <strong>{itemPlacements.length}</strong>
+                <span>Placed items</span>
+              </div>
+              <div>
+                <strong>{avatarPlacement ? "1" : "0"}</strong>
+                <span>Avatar instances</span>
+              </div>
             </div>
           </div>
 
           <div className="panel stack-gap compact-panel materials-grid-panel">
             <div className="panel-header">
-              <h2>Materials</h2>
+              <h2>Materials & Entities</h2>
             </div>
             <div className="selected-material">
-              <span className="subtle-label">Current brush</span>
+              <span className="subtle-label">Current paint brush</span>
               <div className="selected-material-card">
                 {selectedMaterial ? (
                   <TilePreview frames={selectedMaterial.frames} size={64} />
@@ -227,7 +338,10 @@ export function EditorPage() {
                     <button
                       type="button"
                       className="material-select"
-                      onClick={() => setCurrentMaterialId(tile.id)}
+                      onClick={() => {
+                        setCurrentMaterialId(tile.id);
+                        setInteractionMode("paint");
+                      }}
                     >
                       <TilePreview frames={tile.frames} />
                       <strong>{label}</strong>
@@ -247,6 +361,79 @@ export function EditorPage() {
                 );
               })}
             </div>
+            <div className="entity-section">
+              <div className="panel-header">
+                <h3>Avatar</h3>
+                <span className="entity-meta">
+                  {avatarPlacement ? "Placed" : "Missing"}
+                </span>
+              </div>
+              <button
+                className={`entity-pick ${interactionMode === "avatar" ? "active" : ""}`}
+                type="button"
+                onClick={() => setInteractionMode("avatar")}
+              >
+                {avatarDefinition ? (
+                  <TilePreview frames={avatarDefinition.frames} size={48} />
+                ) : (
+                  <div className="empty-preview entity-preview" />
+                )}
+                <div>
+                  <strong>{avatarDefinition?.name ?? "Avatar A"}</strong>
+                  <p>Exactly one avatar is supported, matching Bitsy rules.</p>
+                </div>
+              </button>
+            </div>
+            <div className="entity-section">
+              <div className="panel-header">
+                <h3>Sprites</h3>
+                <span className="entity-meta">{spriteDefinitions.length} defs</span>
+              </div>
+              <div className="entity-grid">
+                {spriteDefinitions.map((sprite) => (
+                  <button
+                    key={sprite.id}
+                    className={`entity-pick ${selectedSpriteId === sprite.id ? "active" : ""}`}
+                    type="button"
+                    onClick={() => {
+                      setSelectedSpriteId(sprite.id);
+                      setInteractionMode("sprite");
+                    }}
+                  >
+                    <TilePreview frames={sprite.frames} size={48} />
+                    <div>
+                      <strong>{sprite.name ?? sprite.id}</strong>
+                      <p>{sprite.id}</p>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="entity-section">
+              <div className="panel-header">
+                <h3>Items</h3>
+                <span className="entity-meta">{itemDefinitions.length} defs</span>
+              </div>
+              <div className="entity-grid">
+                {itemDefinitions.map((item) => (
+                  <button
+                    key={item.id}
+                    className={`entity-pick ${selectedItemId === item.id ? "active" : ""}`}
+                    type="button"
+                    onClick={() => {
+                      setSelectedItemId(item.id);
+                      setInteractionMode("item");
+                    }}
+                  >
+                    <TilePreview frames={item.frames} size={48} />
+                    <div>
+                      <strong>{item.name ?? item.id}</strong>
+                      <p>{item.id}</p>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
           </div>
         </div>
 
@@ -255,36 +442,32 @@ export function EditorPage() {
             <div>
               <h2>Map Editor</h2>
               <p className="panel-note">
-                Shared room edges connect across every passable border cell,
-                excluding corners so horizontal and vertical exits do not fight
-                over the same tile. Left-click now toggles the current wall on
-                and off.
+                Rooms keep stable ids while you swap whole 16x16 chunks. Entity
+                placements follow their room when rearranging, and right-click
+                clears entities on the target cell.
               </p>
             </div>
             <div className="editor-stage-status">
               <span>
-                {startMarker.roomIndex === null
-                  ? "No start room marker"
-                  : `Start room chunk #${startMarker.roomIndex + 1}`}
+                {avatarMarker.roomIndex === null
+                  ? "No avatar room"
+                  : `Avatar room ${roomSlots[avatarMarker.roomIndex]?.roomId ?? "?"}`}
               </span>
+              <span>{modeSummary}</span>
               <span>
-                {interactionMode === "start"
-                  ? "Click to place start"
-                  : selectedTileBlocking
-                    ? "Toggling selected wall tile"
-                    : "Toggling selected passable tile"}
+                {selectedRoom ? `Swap source: ${selectedRoom.roomId}` : "No room selected"}
               </span>
             </div>
           </div>
           <div className="canvas-scroller full-stage-scroller">
             <EditorCanvas
               interactionMode={interactionMode}
-              startRoomIndex={startMarker.roomIndex}
-              startCell={startMarker.cell}
-              onPickStartCell={(cell) => {
-                setStartCell(cell);
-                setInteractionMode("paint");
-              }}
+              avatarRoomIndex={avatarMarker.roomIndex}
+              avatarPlacement={avatarMarker.cell}
+              selectedRoomIndex={selectedRoomIndex}
+              selectedSpriteId={selectedSpriteId}
+              selectedItemId={selectedItemId}
+              onSelectRoom={setSelectedRoomIndex}
             />
           </div>
         </div>
@@ -318,48 +501,48 @@ export function EditorPage() {
             </div>
           </div>
           <textarea
-            className="source-input compact-export"
+            className="source-input compact-export resize-none!"
             value={exportText}
             readOnly
+            placeholder="Build export to regenerate ROOM blocks with room moves and entity placements."
             spellCheck={false}
           />
         </div>
       </section>
 
-      {showClearDialog ? (
-        <dialog
-          className="confirm-dialog"
-          open
-          onClose={() => setShowClearDialog(false)}
-        >
-          <div className="confirm-dialog-content">
-            <h2>Clear current map?</h2>
-            <p>
-              This wipes the current oversized map grid and keeps the imported
-              Bitsy source text in place.
-            </p>
-            <div className="button-row confirm-dialog-actions">
-              <button
-                className="button"
-                type="button"
-                onClick={() => setShowClearDialog(false)}
-              >
-                Cancel
-              </button>
-              <button
-                className="button danger"
-                type="button"
-                onClick={() => {
-                  clearMap();
-                  setShowClearDialog(false);
-                }}
-              >
-                Clear map
-              </button>
-            </div>
+      <dialog
+        className="confirm-dialog"
+        open={showClearDialog}
+        onClose={() => setShowClearDialog(false)}
+      >
+        <div className="confirm-dialog-content">
+          <h2>Clear the entire map?</h2>
+          <p>
+            This removes all painted tiles plus avatar, sprite, and item placements
+            from the current world grid.
+          </p>
+          <div className="button-row confirm-dialog-actions">
+            <button
+              className="button"
+              type="button"
+              onClick={() => setShowClearDialog(false)}
+            >
+              Cancel
+            </button>
+            <button
+              className="button danger"
+              type="button"
+              onClick={() => {
+                clearMap();
+                setSelectedRoomIndex(null);
+                setShowClearDialog(false);
+              }}
+            >
+              Clear map
+            </button>
           </div>
-        </dialog>
-      ) : null}
+        </div>
+      </dialog>
     </div>
   );
 }

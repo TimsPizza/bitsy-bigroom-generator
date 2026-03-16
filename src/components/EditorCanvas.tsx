@@ -6,8 +6,8 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 
-import { BITSY_TILE_SIZE, type DrawingFrame } from "@/types/editor";
 import { useEditorStore } from "@/store/editorStore";
+import { BITSY_TILE_SIZE, type DrawingFrame, type WorldPoint } from "@/types/editor";
 
 const CELL_SIZE = 16;
 const EMPTY_FILL = "#f8f2e8";
@@ -15,16 +15,25 @@ const SOLID_FILL = "#d96d2d";
 const PASSABLE_FILL = "#5b9a65";
 const GRIDLINE = "rgba(30, 33, 26, 0.12)";
 const ROOM_GRIDLINE = "rgba(30, 33, 26, 0.35)";
-const START_ROOM_OUTLINE = "#dd3d2a";
-const START_ROOM_FILL = "rgba(221, 61, 42, 0.14)";
-const START_MARKER_FILL = "#fff5db";
-const START_MARKER_STROKE = "#7d1f17";
+const AVATAR_ROOM_OUTLINE = "#dd3d2a";
+const AVATAR_ROOM_FILL = "rgba(221, 61, 42, 0.14)";
+const SELECTED_ROOM_OUTLINE = "#245d93";
+const SELECTED_ROOM_FILL = "rgba(36, 93, 147, 0.12)";
+const ROOM_LABEL_FILL = "rgba(255, 250, 241, 0.92)";
+const ROOM_LABEL_TEXT = "#4c4433";
+const AVATAR_MARKER_FILL = "#fff5db";
+const AVATAR_MARKER_STROKE = "#7d1f17";
+const SPRITE_MARKER_FILL = "rgba(103, 143, 214, 0.92)";
+const ITEM_MARKER_FILL = "rgba(248, 206, 109, 0.92)";
 
 type EditorCanvasProps = {
-  interactionMode: "paint" | "start";
-  startRoomIndex: number | null;
-  startCell: { x: number; y: number } | null;
-  onPickStartCell: (cell: { x: number; y: number }) => void;
+  interactionMode: "paint" | "avatar" | "sprite" | "item" | "rearrange";
+  avatarRoomIndex: number | null;
+  avatarPlacement: WorldPoint | null;
+  selectedRoomIndex: number | null;
+  selectedSpriteId: string | null;
+  selectedItemId: string | null;
+  onSelectRoom: (roomIndex: number | null) => void;
 };
 
 function drawFrame(
@@ -53,11 +62,43 @@ function drawFrame(
   });
 }
 
+function drawRoomOverlay(
+  context: CanvasRenderingContext2D,
+  roomIndex: number,
+  roomColumns: number,
+  roomSize: number,
+  width: number,
+  height: number,
+  fill: string,
+  stroke: string,
+) {
+  const roomX = roomIndex % roomColumns;
+  const roomY = Math.floor(roomIndex / roomColumns);
+  const outlineX = roomX * roomSize * CELL_SIZE;
+  const outlineY = roomY * roomSize * CELL_SIZE;
+  const outlineWidth = Math.min(roomSize, width - roomX * roomSize) * CELL_SIZE;
+  const outlineHeight = Math.min(roomSize, height - roomY * roomSize) * CELL_SIZE;
+
+  context.fillStyle = fill;
+  context.fillRect(outlineX, outlineY, outlineWidth, outlineHeight);
+  context.strokeStyle = stroke;
+  context.lineWidth = 4;
+  context.strokeRect(
+    outlineX + 1.5,
+    outlineY + 1.5,
+    outlineWidth - 3,
+    outlineHeight - 3,
+  );
+}
+
 export function EditorCanvas({
   interactionMode,
-  startRoomIndex,
-  startCell,
-  onPickStartCell,
+  avatarRoomIndex,
+  avatarPlacement,
+  selectedRoomIndex,
+  selectedSpriteId,
+  selectedItemId,
+  onSelectRoom,
 }: EditorCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const width = useEditorStore((state) => state.width);
@@ -66,8 +107,16 @@ export function EditorCanvas({
   const cells = useEditorStore((state) => state.cells);
   const tileBehavior = useEditorStore((state) => state.tileBehavior);
   const importedSource = useEditorStore((state) => state.importedSource);
+  const roomSlots = useEditorStore((state) => state.roomSlots);
+  const spritePlacements = useEditorStore((state) => state.spritePlacements);
+  const itemPlacements = useEditorStore((state) => state.itemPlacements);
   const paintCell = useEditorStore((state) => state.paintCell);
   const eraseCell = useEditorStore((state) => state.eraseCell);
+  const setAvatarPlacement = useEditorStore((state) => state.setAvatarPlacement);
+  const setSpritePlacement = useEditorStore((state) => state.setSpritePlacement);
+  const placeItem = useEditorStore((state) => state.placeItem);
+  const clearPlacementsAt = useEditorStore((state) => state.clearPlacementsAt);
+  const swapRooms = useEditorStore((state) => state.swapRooms);
   const [dragMode, setDragMode] = useState<"paint" | "erase" | null>(null);
 
   const materialFrames = useMemo(() => {
@@ -75,6 +124,26 @@ export function EditorCanvas({
     importedSource?.tiles.forEach((tile) => {
       if (tile.frames[0]) {
         framesById.set(tile.id, tile.frames[0]);
+      }
+    });
+    return framesById;
+  }, [importedSource]);
+
+  const spriteFrames = useMemo(() => {
+    const framesById = new Map<string, DrawingFrame>();
+    importedSource?.sprites.forEach((sprite) => {
+      if (sprite.frames[0]) {
+        framesById.set(sprite.id, sprite.frames[0]);
+      }
+    });
+    return framesById;
+  }, [importedSource]);
+
+  const itemFrames = useMemo(() => {
+    const framesById = new Map<string, DrawingFrame>();
+    importedSource?.items.forEach((item) => {
+      if (item.frames[0]) {
+        framesById.set(item.id, item.frames[0]);
       }
     });
     return framesById;
@@ -122,6 +191,33 @@ export function EditorCanvas({
       }
     }
 
+    const roomColumns = Math.max(1, Math.ceil(width / roomSize));
+    if (avatarRoomIndex !== null) {
+      drawRoomOverlay(
+        context,
+        avatarRoomIndex,
+        roomColumns,
+        roomSize,
+        width,
+        height,
+        AVATAR_ROOM_FILL,
+        AVATAR_ROOM_OUTLINE,
+      );
+    }
+
+    if (selectedRoomIndex !== null) {
+      drawRoomOverlay(
+        context,
+        selectedRoomIndex,
+        roomColumns,
+        roomSize,
+        width,
+        height,
+        SELECTED_ROOM_FILL,
+        SELECTED_ROOM_OUTLINE,
+      );
+    }
+
     context.strokeStyle = ROOM_GRIDLINE;
     context.lineWidth = 2;
     for (let x = 0; x <= width; x += roomSize) {
@@ -138,59 +234,99 @@ export function EditorCanvas({
       context.stroke();
     }
 
-    if (startRoomIndex !== null) {
-      const chunkColumns = Math.max(1, Math.ceil(width / roomSize));
-      const roomX = startRoomIndex % chunkColumns;
-      const roomY = Math.floor(startRoomIndex / chunkColumns);
-      const outlineX = roomX * roomSize * CELL_SIZE;
-      const outlineY = roomY * roomSize * CELL_SIZE;
-      const outlineWidth =
-        Math.min(roomSize, width - roomX * roomSize) * CELL_SIZE;
-      const outlineHeight =
-        Math.min(roomSize, height - roomY * roomSize) * CELL_SIZE;
-
-      context.fillStyle = START_ROOM_FILL;
-      context.fillRect(outlineX, outlineY, outlineWidth, outlineHeight);
-      context.strokeStyle = START_ROOM_OUTLINE;
-      context.lineWidth = 4;
-      context.strokeRect(
-        outlineX + 1.5,
-        outlineY + 1.5,
-        outlineWidth - 3,
-        outlineHeight - 3,
-      );
-
-      context.fillStyle = START_ROOM_OUTLINE;
-      context.font = '700 12px "Source Code Pro", monospace';
+    roomSlots.forEach((slot, roomIndex) => {
+      const roomX = roomIndex % roomColumns;
+      const roomY = Math.floor(roomIndex / roomColumns);
+      const labelX = roomX * roomSize * CELL_SIZE + 6;
+      const labelY = roomY * roomSize * CELL_SIZE + 6;
+      context.fillStyle = ROOM_LABEL_FILL;
+      context.fillRect(labelX - 2, labelY - 2, 54, 14);
+      context.fillStyle = ROOM_LABEL_TEXT;
+      context.font = '700 10px "Source Code Pro", monospace';
       context.textBaseline = "top";
-      context.fillText("START ROOM", outlineX + 8, outlineY + 8);
-    }
+      context.fillText(slot.roomId, labelX, labelY);
+    });
 
-    if (startCell) {
-      const markerX = startCell.x * CELL_SIZE + CELL_SIZE / 2;
-      const markerY = startCell.y * CELL_SIZE + CELL_SIZE / 2;
+    itemPlacements.forEach((placement) => {
+      const markerX = placement.x * CELL_SIZE;
+      const markerY = placement.y * CELL_SIZE;
+      context.fillStyle = ITEM_MARKER_FILL;
+      context.fillRect(markerX + 2, markerY + 2, CELL_SIZE - 4, CELL_SIZE - 4);
+      const frame = itemFrames.get(placement.id);
+      if (frame) {
+        drawFrame(context, frame, markerX, markerY, "#34250c");
+      } else {
+        context.fillStyle = "#34250c";
+        context.font = '700 9px "Source Code Pro", monospace';
+        context.fillText(placement.id, markerX + 2, markerY + 3);
+      }
+    });
+
+    spritePlacements.forEach((placement) => {
+      const markerX = placement.x * CELL_SIZE;
+      const markerY = placement.y * CELL_SIZE;
+      context.fillStyle = SPRITE_MARKER_FILL;
+      context.fillRect(markerX + 1, markerY + 1, CELL_SIZE - 2, CELL_SIZE - 2);
+      const frame = spriteFrames.get(placement.id);
+      if (frame) {
+        drawFrame(context, frame, markerX, markerY, "#0d1d2f");
+      } else {
+        context.fillStyle = "#0d1d2f";
+        context.font = '700 9px "Source Code Pro", monospace';
+        context.fillText(placement.id, markerX + 2, markerY + 3);
+      }
+    });
+
+    if (avatarPlacement) {
+      const markerX = avatarPlacement.x * CELL_SIZE + CELL_SIZE / 2;
+      const markerY = avatarPlacement.y * CELL_SIZE + CELL_SIZE / 2;
       context.beginPath();
-      context.arc(markerX, markerY, 5, 0, Math.PI * 2);
-      context.fillStyle = START_MARKER_FILL;
+      context.arc(markerX, markerY, 6, 0, Math.PI * 2);
+      context.fillStyle = AVATAR_MARKER_FILL;
       context.fill();
-      context.strokeStyle = START_MARKER_STROKE;
+      context.strokeStyle = AVATAR_MARKER_STROKE;
       context.lineWidth = 2;
       context.stroke();
+
+      const avatarFrame = spriteFrames.get("A");
+      if (avatarFrame) {
+        drawFrame(
+          context,
+          avatarFrame,
+          avatarPlacement.x * CELL_SIZE,
+          avatarPlacement.y * CELL_SIZE,
+          "#541610",
+        );
+      } else {
+        context.fillStyle = AVATAR_MARKER_STROKE;
+        context.font = '700 10px "Source Code Pro", monospace';
+        context.fillText(
+          "A",
+          avatarPlacement.x * CELL_SIZE + 4,
+          avatarPlacement.y * CELL_SIZE + 3,
+        );
+      }
     }
   }, [
+    avatarPlacement,
+    avatarRoomIndex,
     cells,
     height,
+    itemFrames,
+    itemPlacements,
     materialFrames,
     roomSize,
-    startCell,
-    startRoomIndex,
+    roomSlots,
+    selectedRoomIndex,
+    spriteFrames,
+    spritePlacements,
     tileBehavior,
     width,
   ]);
 
   function getCellFromEvent(
     event: ReactPointerEvent<HTMLCanvasElement>,
-  ): { x: number; y: number } | null {
+  ): WorldPoint | null {
     const canvas = canvasRef.current;
     if (!canvas) {
       return null;
@@ -205,6 +341,13 @@ export function EditorCanvas({
     }
 
     return { x, y };
+  }
+
+  function getRoomIndexFromCell(cell: WorldPoint): number {
+    const roomColumns = Math.max(1, Math.ceil(width / roomSize));
+    const roomX = Math.floor(cell.x / roomSize);
+    const roomY = Math.floor(cell.y / roomSize);
+    return roomY * roomColumns + roomX;
   }
 
   function applyDrag(
@@ -224,19 +367,40 @@ export function EditorCanvas({
     eraseCell(cell.x, cell.y);
   }
 
-  function resolveLeftClickMode(cell: {
-    x: number;
-    y: number;
-  }): "paint" | "erase" {
+  function resolveLeftClickMode(cell: WorldPoint): "paint" | "erase" {
     const existingCell = cells[cell.y * width + cell.x];
     return existingCell?.materialId ? "erase" : "paint";
+  }
+
+  function handleEntityPlacement(
+    cell: WorldPoint,
+    event: ReactPointerEvent<HTMLCanvasElement>,
+  ) {
+    if (event.button === 2) {
+      clearPlacementsAt(cell.x, cell.y);
+      return;
+    }
+
+    if (interactionMode === "avatar") {
+      setAvatarPlacement(cell);
+      return;
+    }
+
+    if (interactionMode === "sprite" && selectedSpriteId) {
+      setSpritePlacement(selectedSpriteId, cell);
+      return;
+    }
+
+    if (interactionMode === "item" && selectedItemId) {
+      placeItem(selectedItemId, cell);
+    }
   }
 
   return (
     <div className="editor-canvas-shell">
       <canvas
         ref={canvasRef}
-        className={`editor-canvas ${interactionMode === "start" ? "start-mode" : ""}`}
+        className={`editor-canvas ${interactionMode !== "paint" ? "start-mode" : ""}`}
         onContextMenu={(event) => event.preventDefault()}
         onPointerDown={(event) => {
           const cell = getCellFromEvent(event);
@@ -244,14 +408,33 @@ export function EditorCanvas({
             return;
           }
 
-          if (interactionMode === "start") {
-            onPickStartCell(cell);
+          if (interactionMode === "rearrange") {
+            if (event.button === 2) {
+              onSelectRoom(null);
+              setDragMode(null);
+              return;
+            }
+
+            const roomIndex = getRoomIndexFromCell(cell);
+            if (selectedRoomIndex === null) {
+              onSelectRoom(roomIndex);
+            } else if (selectedRoomIndex === roomIndex) {
+              onSelectRoom(null);
+            } else {
+              swapRooms(selectedRoomIndex, roomIndex);
+              onSelectRoom(null);
+            }
             setDragMode(null);
             return;
           }
 
-          const mode =
-            event.button === 2 ? "erase" : resolveLeftClickMode(cell);
+          if (interactionMode !== "paint") {
+            handleEntityPlacement(cell, event);
+            setDragMode(null);
+            return;
+          }
+
+          const mode = event.button === 2 ? "erase" : resolveLeftClickMode(cell);
           setDragMode(mode);
           applyDrag(mode, event);
         }}
@@ -268,15 +451,14 @@ export function EditorCanvas({
       <div className="editor-canvas-caption">
         <span>Room guides every {roomSize} cells.</span>
         <span>
-          {interactionMode === "start"
-            ? "Click a cell to place the avatar start."
-            : startRoomIndex === null
-              ? "No start room detected."
-              : "Start room highlighted in red."}
+          {interactionMode === "paint"
+            ? "Left drag toggles current tile, right drag erases."
+            : interactionMode === "rearrange"
+              ? "Click one room, then click another room to swap them."
+              : "Left click places the selected entity, right click clears entities on that cell."}
         </span>
         <span>
-          {Math.ceil(width / roomSize)} x {Math.ceil(height / roomSize)}{" "}
-          generated rooms
+          {Math.ceil(width / roomSize)} x {Math.ceil(height / roomSize)} room slots
         </span>
       </div>
     </div>

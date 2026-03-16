@@ -209,6 +209,10 @@ button {
   gap: 0.5rem;
 }
 
+.mode-row .button {
+  flex: 1 1 8rem;
+}
+
 .control-grid,
 .stats-grid {
   display: grid;
@@ -282,6 +286,64 @@ button {
 
 .compact-material-grid {
   max-height: 20rem;
+}
+
+.entity-section {
+  display: grid;
+  gap: 0.75rem;
+  padding-top: 0.25rem;
+  border-top: 1px solid rgba(38, 32, 22, 0.08);
+}
+
+.entity-grid {
+  display: grid;
+  gap: 0.6rem;
+  max-height: 11rem;
+  overflow: auto;
+}
+
+.entity-pick {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  width: 100%;
+  padding: 0.7rem 0.8rem;
+  border: 1px solid rgba(38, 32, 22, 0.14);
+  border-radius: 1rem;
+  background: #fff7e8;
+  text-align: left;
+  transition:
+    transform 140ms ease,
+    border-color 140ms ease,
+    background 140ms ease;
+}
+
+.entity-pick:hover {
+  transform: translateY(-1px);
+  border-color: rgba(38, 32, 22, 0.34);
+}
+
+.entity-pick.active {
+  border-color: #245d93;
+  background: #dfeffc;
+}
+
+.entity-pick strong {
+  display: block;
+  font-size: 0.92rem;
+}
+
+.entity-pick p,
+.entity-meta {
+  margin: 0.2rem 0 0;
+  font-family: "Source Code Pro", monospace;
+  font-size: 0.72rem;
+  color: #5e5646;
+}
+
+.entity-preview {
+  width: 48px;
+  height: 48px;
 }
 
 .material-card {

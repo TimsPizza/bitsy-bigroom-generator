@@ -3,13 +3,17 @@ import { create } from "zustand";
 import {
   exportMapOnlyGameData,
   hydrateWorldFromSource,
+  nextAvailableRoomId,
   parseBitsySource,
 } from "@/lib/bitsy";
 import {
   BITSY_MAP_SIZE,
   type BitsySource,
   type GridCell,
+  type RoomSlot,
   type TileBehaviorMap,
+  type WorldEntityPlacement,
+  type WorldPoint,
 } from "@/types/editor";
 
 type EditorStore = {
@@ -23,17 +27,24 @@ type EditorStore = {
   roomSize: number;
   cells: GridCell[];
   tileBehavior: TileBehaviorMap;
-  startCell: { x: number; y: number } | null;
+  roomSlots: RoomSlot[];
+  avatarPlacement: WorldPoint | null;
+  spritePlacements: WorldEntityPlacement[];
+  itemPlacements: WorldEntityPlacement[];
   currentMaterialId: string | null;
   setSourceText: (value: string) => void;
   importGameData: () => { roomColumns: number; roomRows: number } | null;
-  setStartCell: (cell: { x: number; y: number } | null) => void;
-  setCurrentMaterialId: (materialId: string) => void;
+  setAvatarPlacement: (cell: WorldPoint | null) => void;
+  setSpritePlacement: (spriteId: string, cell: WorldPoint | null) => void;
+  placeItem: (itemId: string, cell: WorldPoint) => void;
+  clearPlacementsAt: (x: number, y: number) => void;
+  setCurrentMaterialId: (materialId: string | null) => void;
   setTileBlocking: (materialId: string, blocking: boolean) => void;
   paintCell: (x: number, y: number) => void;
   eraseCell: (x: number, y: number) => void;
   clearMap: () => void;
   resizeWorld: (width: number, height: number) => void;
+  swapRooms: (fromIndex: number, toIndex: number) => void;
   buildExport: () => void;
 };
 
@@ -59,6 +70,172 @@ function copyGrid(cells: GridCell[]): GridCell[] {
   return cells.map((cell) => ({ ...cell }));
 }
 
+function getChunkCount(size: number, roomSize: number): number {
+  return Math.max(1, Math.ceil(size / roomSize));
+}
+
+function createRoomSlots(
+  count: number,
+  source: BitsySource | null,
+  existingSlots: RoomSlot[] = [],
+): RoomSlot[] {
+  const usedIds = new Set(
+    existingSlots.map((slot) => slot.roomId).concat(source?.rooms.map((room) => room.id) ?? []),
+  );
+  const slots = existingSlots.slice(0, count).map((slot) => ({ ...slot }));
+
+  while (slots.length < count) {
+    slots.push({
+      roomId: nextAvailableRoomId(usedIds),
+      templateRoomId: source?.rooms[0]?.id ?? null,
+    });
+  }
+
+  return slots;
+}
+
+function resizeRoomSlots(
+  roomSlots: RoomSlot[],
+  previousWidth: number,
+  previousHeight: number,
+  nextWidth: number,
+  nextHeight: number,
+  roomSize: number,
+  source: BitsySource | null,
+): RoomSlot[] {
+  const previousColumns = getChunkCount(previousWidth, roomSize);
+  const previousRows = getChunkCount(previousHeight, roomSize);
+  const nextColumns = getChunkCount(nextWidth, roomSize);
+  const nextRows = getChunkCount(nextHeight, roomSize);
+  const resized = Array.from({ length: nextColumns * nextRows }, () => null as RoomSlot | null);
+
+  for (let roomY = 0; roomY < Math.min(previousRows, nextRows); roomY += 1) {
+    for (let roomX = 0; roomX < Math.min(previousColumns, nextColumns); roomX += 1) {
+      resized[roomY * nextColumns + roomX] = {
+        ...roomSlots[roomY * previousColumns + roomX],
+      };
+    }
+  }
+
+  const usedIds = new Set(
+    resized.flatMap((slot) => (slot ? [slot.roomId] : [])).concat(
+      source?.rooms.map((room) => room.id) ?? [],
+    ),
+  );
+
+  return resized.map(
+    (slot) =>
+      slot ?? {
+        roomId: nextAvailableRoomId(usedIds),
+        templateRoomId: source?.rooms[0]?.id ?? null,
+      },
+  );
+}
+
+function isInsideBounds(point: WorldPoint, width: number, height: number): boolean {
+  return point.x >= 0 && point.y >= 0 && point.x < width && point.y < height;
+}
+
+function getRoomBounds(
+  roomIndex: number,
+  roomColumns: number,
+  roomSize: number,
+): { originX: number; originY: number } {
+  const roomX = roomIndex % roomColumns;
+  const roomY = Math.floor(roomIndex / roomColumns);
+  return {
+    originX: roomX * roomSize,
+    originY: roomY * roomSize,
+  };
+}
+
+function isPointInsideRoom(
+  point: WorldPoint,
+  roomIndex: number,
+  roomColumns: number,
+  roomSize: number,
+): boolean {
+  const { originX, originY } = getRoomBounds(roomIndex, roomColumns, roomSize);
+  return (
+    point.x >= originX &&
+    point.y >= originY &&
+    point.x < originX + roomSize &&
+    point.y < originY + roomSize
+  );
+}
+
+function movePointBetweenRooms(
+  point: WorldPoint,
+  fromIndex: number,
+  toIndex: number,
+  roomColumns: number,
+  roomSize: number,
+): WorldPoint {
+  const fromBounds = getRoomBounds(fromIndex, roomColumns, roomSize);
+  const toBounds = getRoomBounds(toIndex, roomColumns, roomSize);
+  return {
+    x: toBounds.originX + (point.x - fromBounds.originX),
+    y: toBounds.originY + (point.y - fromBounds.originY),
+  };
+}
+
+function swapWorldPlacements<T extends WorldPoint>(
+  placements: T[],
+  fromIndex: number,
+  toIndex: number,
+  roomColumns: number,
+  roomSize: number,
+): T[] {
+  return placements.map((placement) => {
+    if (isPointInsideRoom(placement, fromIndex, roomColumns, roomSize)) {
+      return {
+        ...placement,
+        ...movePointBetweenRooms(placement, fromIndex, toIndex, roomColumns, roomSize),
+      };
+    }
+
+    if (isPointInsideRoom(placement, toIndex, roomColumns, roomSize)) {
+      return {
+        ...placement,
+        ...movePointBetweenRooms(placement, toIndex, fromIndex, roomColumns, roomSize),
+      };
+    }
+
+    return placement;
+  });
+}
+
+function swapRoomCells(
+  cells: GridCell[],
+  width: number,
+  roomSize: number,
+  fromIndex: number,
+  toIndex: number,
+): GridCell[] {
+  const nextCells = copyGrid(cells);
+  const roomColumns = getChunkCount(width, roomSize);
+  const fromBounds = getRoomBounds(fromIndex, roomColumns, roomSize);
+  const toBounds = getRoomBounds(toIndex, roomColumns, roomSize);
+
+  for (let offsetY = 0; offsetY < roomSize; offsetY += 1) {
+    for (let offsetX = 0; offsetX < roomSize; offsetX += 1) {
+      const fromCellIndex =
+        (fromBounds.originY + offsetY) * width + fromBounds.originX + offsetX;
+      const toCellIndex =
+        (toBounds.originY + offsetY) * width + toBounds.originX + offsetX;
+      const fromCell = nextCells[fromCellIndex];
+      nextCells[fromCellIndex] = { ...nextCells[toCellIndex] };
+      nextCells[toCellIndex] = { ...fromCell };
+    }
+  }
+
+  return nextCells;
+}
+
+function createInitialRoomSlots(): RoomSlot[] {
+  return createRoomSlots(16, null);
+}
+
 export const useEditorStore = create<EditorStore>((set, get) => ({
   sourceText: "",
   importedSource: null,
@@ -70,7 +247,10 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
   roomSize: BITSY_MAP_SIZE,
   cells: createGrid(64, 64),
   tileBehavior: {},
-  startCell: null,
+  roomSlots: createInitialRoomSlots(),
+  avatarPlacement: null,
+  spritePlacements: [],
+  itemPlacements: [],
   currentMaterialId: null,
   setSourceText: (value) => set({ sourceText: value, importError: null }),
   importGameData: () => {
@@ -88,7 +268,10 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
         height: importedWorld.height,
         cells: importedWorld.cells,
         tileBehavior: importedWorld.tileBehavior,
-        startCell: importedWorld.startCell,
+        roomSlots: importedWorld.roomSlots,
+        avatarPlacement: importedWorld.avatarPlacement,
+        spritePlacements: importedWorld.spritePlacements,
+        itemPlacements: importedWorld.itemPlacements,
         currentMaterialId:
           source.tiles.find((tile) => tile.id !== "0")?.id ??
           source.tiles[0]?.id ??
@@ -108,8 +291,62 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
       return null;
     }
   },
-  setStartCell: (startCell) => set({ startCell }),
-  setCurrentMaterialId: (materialId) => set({ currentMaterialId: materialId }),
+  setAvatarPlacement: (avatarPlacement) =>
+    set({
+      avatarPlacement,
+      exportText: "",
+    }),
+  setSpritePlacement: (spriteId, cell) =>
+    set((state) => ({
+      spritePlacements: cell
+        ? [
+            ...state.spritePlacements.filter((placement) => placement.id !== spriteId),
+            {
+              id: spriteId,
+              x: cell.x,
+              y: cell.y,
+            },
+          ]
+        : state.spritePlacements.filter((placement) => placement.id !== spriteId),
+      exportText: "",
+    })),
+  placeItem: (itemId, cell) =>
+    set((state) => {
+      const alreadyPlaced = state.itemPlacements.some(
+        (placement) =>
+          placement.id === itemId && placement.x === cell.x && placement.y === cell.y,
+      );
+      if (alreadyPlaced) {
+        return state;
+      }
+
+      return {
+        itemPlacements: [
+          ...state.itemPlacements,
+          {
+            id: itemId,
+            x: cell.x,
+            y: cell.y,
+          },
+        ],
+        exportText: "",
+      };
+    }),
+  clearPlacementsAt: (x, y) =>
+    set((state) => ({
+      avatarPlacement:
+        state.avatarPlacement?.x === x && state.avatarPlacement.y === y
+          ? null
+          : state.avatarPlacement,
+      spritePlacements: state.spritePlacements.filter(
+        (placement) => placement.x !== x || placement.y !== y,
+      ),
+      itemPlacements: state.itemPlacements.filter(
+        (placement) => placement.x !== x || placement.y !== y,
+      ),
+      exportText: "",
+    })),
+  setCurrentMaterialId: (currentMaterialId) => set({ currentMaterialId }),
   setTileBlocking: (materialId, blocking) =>
     set((state) => ({
       tileBehavior: {
@@ -118,6 +355,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
           blocking,
         },
       },
+      exportText: "",
     })),
   paintCell: (x, y) => {
     const { width, height, cells, currentMaterialId } = get();
@@ -136,7 +374,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
       materialId: currentMaterialId,
     };
 
-    set({ cells: nextCells });
+    set({ cells: nextCells, exportText: "" });
   },
   eraseCell: (x, y) => {
     const { width, height, cells } = get();
@@ -146,11 +384,14 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
 
     const nextCells = copyGrid(cells);
     nextCells[y * width + x] = createEmptyCell();
-    set({ cells: nextCells });
+    set({ cells: nextCells, exportText: "" });
   },
   clearMap: () =>
     set((state) => ({
       cells: createGrid(state.width, state.height),
+      avatarPlacement: null,
+      spritePlacements: [],
+      itemPlacements: [],
       exportText: "",
     })),
   resizeWorld: (nextWidth, nextHeight) => {
@@ -165,14 +406,84 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
       }
     }
 
-    const startCell =
-      previous.startCell &&
-      previous.startCell.x < width &&
-      previous.startCell.y < height
-        ? previous.startCell
+    const avatarPlacement =
+      previous.avatarPlacement && isInsideBounds(previous.avatarPlacement, width, height)
+        ? previous.avatarPlacement
         : null;
+    const spritePlacements = previous.spritePlacements.filter((placement) =>
+      isInsideBounds(placement, width, height),
+    );
+    const itemPlacements = previous.itemPlacements.filter((placement) =>
+      isInsideBounds(placement, width, height),
+    );
+    const roomSlots = resizeRoomSlots(
+      previous.roomSlots,
+      previous.width,
+      previous.height,
+      width,
+      height,
+      previous.roomSize,
+      previous.importedSource,
+    );
 
-    set({ width, height, cells: resized, startCell, exportText: "" });
+    set({
+      width,
+      height,
+      cells: resized,
+      roomSlots,
+      avatarPlacement,
+      spritePlacements,
+      itemPlacements,
+      exportText: "",
+    });
+  },
+  swapRooms: (fromIndex, toIndex) => {
+    if (fromIndex === toIndex) {
+      return;
+    }
+
+    const state = get();
+    const roomColumns = getChunkCount(state.width, state.roomSize);
+    const nextRoomSlots = state.roomSlots.map((slot) => ({ ...slot }));
+    const fromSlot = nextRoomSlots[fromIndex];
+    const toSlot = nextRoomSlots[toIndex];
+    if (!fromSlot || !toSlot) {
+      return;
+    }
+
+    nextRoomSlots[fromIndex] = toSlot;
+    nextRoomSlots[toIndex] = fromSlot;
+
+    const avatarPlacement = state.avatarPlacement
+      ? swapWorldPlacements(
+          [state.avatarPlacement],
+          fromIndex,
+          toIndex,
+          roomColumns,
+          state.roomSize,
+        )[0] ?? null
+      : null;
+
+    set({
+      cells: swapRoomCells(state.cells, state.width, state.roomSize, fromIndex, toIndex),
+      roomSlots: nextRoomSlots,
+      avatarPlacement,
+      spritePlacements: swapWorldPlacements(
+        state.spritePlacements,
+        fromIndex,
+        toIndex,
+        roomColumns,
+        state.roomSize,
+      ),
+      itemPlacements: swapWorldPlacements(
+        state.itemPlacements,
+        fromIndex,
+        toIndex,
+        roomColumns,
+        state.roomSize,
+      ),
+      exportText: "",
+    });
   },
   buildExport: () => {
     const {
@@ -181,7 +492,10 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
       width,
       height,
       roomSize,
-      startCell,
+      roomSlots,
+      avatarPlacement,
+      spritePlacements,
+      itemPlacements,
       tileBehavior,
     } = get();
     if (!importedSource) {
@@ -195,7 +509,10 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
       tileBehavior,
       width,
       height,
-      startCell,
+      roomSlots,
+      avatarPlacement,
+      spritePlacements,
+      itemPlacements,
       roomSize,
     );
     set({ exportText, importError: null });

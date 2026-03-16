@@ -2,18 +2,26 @@ import {
   BITSY_MAP_SIZE,
   BITSY_TILE_SIZE,
   type BitsyAvatarStart,
+  type BitsyEntityPlacement,
+  type BitsyItem,
   type BitsyRoom,
   type BitsySource,
+  type BitsySprite,
   type BitsyTile,
   type DrawingFrame,
   type GeneratedRoom,
   type GridCell,
   type ImportResult,
+  type RoomSlot,
   type TileBehaviorMap,
+  type WorldEntityPlacement,
+  type WorldPoint,
 } from "@/types/editor";
 
 const ROOM_DIRECTIVES = new Set(["ROOM", "SET"]);
 const TILE_DIRECTIVE = "TIL";
+const SPRITE_DIRECTIVE = "SPR";
+const ITEM_DIRECTIVE = "ITM";
 const DRAWING_DIRECTIVE = "DRW";
 const FLAG_DIRECTIVE = "!";
 const BLANK_TILE_ID = "0";
@@ -108,6 +116,43 @@ function parseAvatarStartCoords(line: string): { x: number; y: number } | null {
   return { x, y };
 }
 
+function parseRoomEntityCoords(line: string): { x: number; y: number } | null {
+  const tokens = line.trim().split(/\s+/);
+  const coordToken = tokens[2];
+  if (!coordToken) {
+    return null;
+  }
+
+  const [xToken, yToken] = coordToken.split(",");
+  const x = Number.parseInt(xToken ?? "", 10);
+  const y = Number.parseInt(yToken ?? "", 10);
+  if (Number.isNaN(x) || Number.isNaN(y)) {
+    return null;
+  }
+
+  return { x, y };
+}
+
+function parseSpritePosLine(
+  line: string,
+): { roomId: string; x: number; y: number } | null {
+  const tokens = line.trim().split(/\s+/);
+  const roomId = tokens[1] ?? "";
+  const coordToken = tokens[2];
+  if (!roomId || !coordToken) {
+    return null;
+  }
+
+  const [xToken, yToken] = coordToken.split(",");
+  const x = Number.parseInt(xToken ?? "", 10);
+  const y = Number.parseInt(yToken ?? "", 10);
+  if (Number.isNaN(x) || Number.isNaN(y)) {
+    return null;
+  }
+
+  return { roomId, x, y };
+}
+
 function parseRoomBlock(
   lines: string[],
   startIndex: number,
@@ -124,6 +169,8 @@ function parseRoomBlock(
     tilemap: [],
     walls: [],
     exits: [],
+    spritePlacements: [],
+    itemPlacements: [],
     pal: null,
     name: null,
     ava: null,
@@ -176,14 +223,39 @@ function parseRoomBlock(
           destY,
         });
       }
-    } else if (directive === "SPR" && getId(lines[index]) === "A") {
-      const coords = parseAvatarStartCoords(lines[index]);
-      if (coords) {
-        avatarStart = {
-          roomId: room.id,
+    } else if (directive === SPRITE_DIRECTIVE) {
+      const spriteId = getId(lines[index]);
+      const coords = parseRoomEntityCoords(lines[index]);
+      if (coords && spriteId) {
+        room.spritePlacements.push({
+          id: spriteId,
           x: coords.x,
           y: coords.y,
+        });
+      }
+
+      if (spriteId !== "A") {
+        index += 1;
+        continue;
+      }
+
+      const avatarCoords = parseAvatarStartCoords(lines[index]);
+      if (avatarCoords) {
+        avatarStart = {
+          roomId: room.id,
+          x: avatarCoords.x,
+          y: avatarCoords.y,
         };
+      }
+    } else if (directive === ITEM_DIRECTIVE) {
+      const itemId = getId(lines[index]);
+      const coords = parseRoomEntityCoords(lines[index]);
+      if (coords && itemId) {
+        room.itemPlacements.push({
+          id: itemId,
+          x: coords.x,
+          y: coords.y,
+        });
       }
     }
 
@@ -273,28 +345,51 @@ function parseRoomFormat(lines: string[]): 0 | 1 {
   return 0;
 }
 
-function parseAvatarSpriteBlock(
+function parseSpriteBlock(
   lines: string[],
   startIndex: number,
 ): {
-  avatarStart: BitsyAvatarStart | null;
-  blockRange: { start: number; end: number };
+  sprite: BitsySprite;
+  placement: BitsyEntityPlacement | null;
   nextIndex: number;
 } {
+  const spriteId = getId(lines[startIndex]);
+  const sprite: BitsySprite = {
+    id: spriteId,
+    name: null,
+    drawingId: null,
+    frames: [],
+    isAvatar: spriteId === "A",
+    blockRange: { start: startIndex, end: startIndex + 1 },
+    placementSource: null,
+  };
   let index = startIndex + 1;
-  let avatarStart: BitsyAvatarStart | null = null;
+  let placement: BitsyEntityPlacement | null = null;
+
+  const nextLine = lines[index]?.trim() ?? "";
+  if (getDirective(nextLine) === DRAWING_DIRECTIVE) {
+    sprite.drawingId = getId(nextLine);
+    index += 1;
+  } else if (isBitmapRow(nextLine)) {
+    const parsed = parseDrawingFrames(lines, index);
+    sprite.frames = parsed.frames;
+    index = parsed.nextIndex;
+  }
 
   while (index < lines.length && lines[index].trim().length > 0) {
     const directive = getDirective(lines[index]);
-    if (directive === "POS") {
-      const tokens = lines[index].trim().split(/\s+/);
-      const roomId = tokens[1] ?? "";
-      const [xToken, yToken] = (tokens[2] ?? "").split(",");
-      const x = Number.parseInt(xToken ?? "", 10);
-      const y = Number.parseInt(yToken ?? "", 10);
-
-      if (roomId && !Number.isNaN(x) && !Number.isNaN(y)) {
-        avatarStart = { roomId, x, y };
+    if (directive === "NAME") {
+      sprite.name = lines[index].trim().slice(5).trim();
+    } else if (directive === "POS") {
+      const coords = parseSpritePosLine(lines[index]);
+      if (coords) {
+        placement = {
+          id: spriteId,
+          roomId: coords.roomId,
+          x: coords.x,
+          y: coords.y,
+        };
+        sprite.placementSource = "sprite_pos";
       }
     }
 
@@ -306,8 +401,53 @@ function parseAvatarSpriteBlock(
   }
 
   return {
-    avatarStart,
-    blockRange: { start: startIndex, end: index },
+    sprite: {
+      ...sprite,
+      blockRange: { start: startIndex, end: index },
+    },
+    placement,
+    nextIndex: index,
+  };
+}
+
+function parseItemBlock(
+  lines: string[],
+  startIndex: number,
+): { item: BitsyItem; nextIndex: number } {
+  const item: BitsyItem = {
+    id: getId(lines[startIndex]),
+    name: null,
+    drawingId: null,
+    frames: [],
+  };
+
+  let index = startIndex + 1;
+  const nextLine = lines[index]?.trim() ?? "";
+
+  if (getDirective(nextLine) === DRAWING_DIRECTIVE) {
+    item.drawingId = getId(nextLine);
+    index += 1;
+  } else if (isBitmapRow(nextLine)) {
+    const parsed = parseDrawingFrames(lines, index);
+    item.frames = parsed.frames;
+    index = parsed.nextIndex;
+  }
+
+  while (index < lines.length && lines[index].trim().length > 0) {
+    const directive = getDirective(lines[index]);
+    if (directive === "NAME") {
+      item.name = lines[index].trim().slice(5).trim();
+    }
+
+    index += 1;
+  }
+
+  while (index < lines.length && lines[index].trim().length === 0) {
+    index += 1;
+  }
+
+  return {
+    item,
     nextIndex: index,
   };
 }
@@ -332,7 +472,7 @@ function collectUniqueIds(ids: string[]): string[] {
   return result;
 }
 
-function nextAvailableRoomId(usedIds: Set<string>): string {
+export function nextAvailableRoomId(usedIds: Set<string>): string {
   let candidate = 0;
   while (usedIds.has(String(candidate))) {
     candidate += 1;
@@ -341,17 +481,6 @@ function nextAvailableRoomId(usedIds: Set<string>): string {
   const value = String(candidate);
   usedIds.add(value);
   return value;
-}
-
-function buildRoomIdList(source: BitsySource, neededCount: number): string[] {
-  const usedIds = new Set(source.rooms.map((room) => room.id));
-  const roomIds = source.rooms.map((room) => room.id);
-
-  while (roomIds.length < neededCount) {
-    roomIds.push(nextAvailableRoomId(usedIds));
-  }
-
-  return roomIds;
 }
 
 function findRoomIndexById(source: BitsySource, roomId: string): number {
@@ -407,7 +536,10 @@ type ImportedWorld = {
   height: number;
   cells: GridCell[];
   tileBehavior: TileBehaviorMap;
-  startCell: { x: number; y: number } | null;
+  roomSlots: RoomSlot[];
+  avatarPlacement: WorldPoint | null;
+  spritePlacements: WorldEntityPlacement[];
+  itemPlacements: WorldEntityPlacement[];
   warnings: string[];
 };
 
@@ -454,6 +586,85 @@ function createTileBehaviorFromSource(source: BitsySource): {
   return { tileBehavior, warnings };
 }
 
+function toWorldPoint(
+  placement: { roomId: string; x: number; y: number },
+  roomPlacements: Map<string, WorldPoint>,
+  minX: number,
+  minY: number,
+  roomSize: number,
+): WorldPoint | null {
+  const roomPlacement = roomPlacements.get(placement.roomId);
+  if (!roomPlacement) {
+    return null;
+  }
+
+  return {
+    x: (roomPlacement.x - minX) * roomSize + placement.x,
+    y: (roomPlacement.y - minY) * roomSize + placement.y,
+  };
+}
+
+function buildWorldEntityPlacements(
+  placements: BitsyEntityPlacement[],
+  roomPlacements: Map<string, WorldPoint>,
+  minX: number,
+  minY: number,
+  roomSize: number,
+): WorldEntityPlacement[] {
+  return placements.flatMap((placement) => {
+    const worldPoint = toWorldPoint(
+      placement,
+      roomPlacements,
+      minX,
+      minY,
+      roomSize,
+    );
+    if (!worldPoint) {
+      return [];
+    }
+
+    return [
+      {
+        id: placement.id,
+        x: worldPoint.x,
+        y: worldPoint.y,
+      },
+    ];
+  });
+}
+
+function buildRoomSlotsFromPlacements(
+  source: BitsySource,
+  placements: Map<string, WorldPoint>,
+  minX: number,
+  minY: number,
+  roomsWide: number,
+  roomsTall: number,
+): RoomSlot[] {
+  const usedIds = new Set(source.rooms.map((room) => room.id));
+  const slots = Array.from({ length: roomsWide * roomsTall }, () => ({
+    roomId: nextAvailableRoomId(usedIds),
+    templateRoomId: source.rooms[0]?.id ?? null,
+  }));
+
+  for (const room of source.rooms) {
+    const placement = placements.get(room.id);
+    if (!placement) {
+      continue;
+    }
+
+    const slotX = placement.x - minX;
+    const slotY = placement.y - minY;
+    const slotIndex = slotY * roomsWide + slotX;
+    slots[slotIndex] = {
+      roomId: room.id,
+      templateRoomId: room.id,
+    };
+  }
+
+  return slots;
+}
+
 export function hydrateWorldFromSource(
   source: BitsySource,
   roomSize = BITSY_MAP_SIZE,
@@ -469,7 +680,15 @@ export function hydrateWorldFromSource(
         materialId: null,
       })),
       tileBehavior,
-      startCell: null,
+      roomSlots: [
+        {
+          roomId: "0",
+          templateRoomId: null,
+        },
+      ],
+      avatarPlacement: null,
+      spritePlacements: [],
+      itemPlacements: [],
       warnings,
     };
   }
@@ -536,6 +755,14 @@ export function hydrateWorldFromSource(
   const roomsTall = maxY - minY + 1;
   const width = roomsWide * roomSize;
   const height = roomsTall * roomSize;
+  const roomSlots = buildRoomSlotsFromPlacements(
+    source,
+    placements,
+    minX,
+    minY,
+    roomsWide,
+    roomsTall,
+  );
   const cells: GridCell[] = Array.from({ length: width * height }, () => ({
     materialId: null,
   }));
@@ -558,23 +785,33 @@ export function hydrateWorldFromSource(
     });
   }
 
-  let startCell: { x: number; y: number } | null = null;
-  if (source.avatarStart) {
-    const placement = placements.get(source.avatarStart.roomId);
-    if (placement) {
-      startCell = {
-        x: (placement.x - minX) * roomSize + source.avatarStart.x,
-        y: (placement.y - minY) * roomSize + source.avatarStart.y,
-      };
-    }
-  }
+  const avatarPlacement = source.avatarStart
+    ? toWorldPoint(source.avatarStart, placements, minX, minY, roomSize)
+    : null;
+  const spritePlacements = buildWorldEntityPlacements(
+    source.spritePlacements,
+    placements,
+    minX,
+    minY,
+    roomSize,
+  );
+  const itemPlacements = buildWorldEntityPlacements(
+    source.itemPlacements,
+    placements,
+    minX,
+    minY,
+    roomSize,
+  );
 
   return {
     width,
     height,
     cells,
     tileBehavior,
-    startCell,
+    roomSlots,
+    avatarPlacement,
+    spritePlacements,
+    itemPlacements,
     warnings,
   };
 }
@@ -848,7 +1085,12 @@ export function parseBitsySource(rawSource: string): ImportResult {
   const rooms: BitsyRoom[] = [];
   const roomBlockRanges: Array<{ start: number; end: number }> = [];
   const tiles: BitsyTile[] = [];
+  const sprites: BitsySprite[] = [];
+  const items: BitsyItem[] = [];
+  const spritePlacements: BitsyEntityPlacement[] = [];
+  const itemPlacements: BitsyEntityPlacement[] = [];
   const drawings = new Map<string, DrawingFrame[]>();
+  const warnings: string[] = [];
   let roomKeyword: "ROOM" | "SET" = "ROOM";
   let avatarStart: BitsyAvatarStart | null = null;
   let avatarStartSource: BitsySource["avatarStartSource"] = null;
@@ -863,9 +1105,33 @@ export function parseBitsySource(rawSource: string): ImportResult {
       const { room, nextIndex } = parsedRoom;
       rooms.push(room);
       roomBlockRanges.push({ start: index, end: nextIndex });
+      itemPlacements.push(
+        ...room.itemPlacements.map((placement) => ({
+          id: placement.id,
+          roomId: room.id,
+          x: placement.x,
+          y: placement.y,
+        })),
+      );
+      for (const placement of room.spritePlacements) {
+        if (placement.id === "A") {
+          continue;
+        }
+
+        spritePlacements.push({
+          id: placement.id,
+          roomId: room.id,
+          x: placement.x,
+          y: placement.y,
+        });
+      }
       if (avatarStart === null && parsedRoom.avatarStart !== null) {
         avatarStart = parsedRoom.avatarStart;
         avatarStartSource = { kind: "room" };
+      } else if (parsedRoom.avatarStart !== null) {
+        warnings.push(
+          `Avatar was placed more than once. Kept the first position and ignored room ${room.id}.`,
+        );
       }
       index = nextIndex;
       continue;
@@ -885,16 +1151,45 @@ export function parseBitsySource(rawSource: string): ImportResult {
       continue;
     }
 
-    if (directive === "SPR" && getId(lines[index]) === "A") {
-      const parsedSprite = parseAvatarSpriteBlock(lines, index);
-      if (avatarStart === null && parsedSprite.avatarStart !== null) {
-        avatarStart = parsedSprite.avatarStart;
-        avatarStartSource = {
-          kind: "sprite_pos",
-          blockRange: parsedSprite.blockRange,
-        };
+    if (directive === SPRITE_DIRECTIVE) {
+      const { sprite, placement, nextIndex } = parseSpriteBlock(lines, index);
+      sprites.push(sprite);
+      if (sprite.isAvatar) {
+        if (avatarStart === null && placement !== null) {
+          avatarStart = {
+            roomId: placement.roomId,
+            x: placement.x,
+            y: placement.y,
+          };
+          avatarStartSource = {
+            kind: "sprite_pos",
+            blockRange: sprite.blockRange,
+          };
+        } else if (placement !== null) {
+          warnings.push(
+            "Avatar was placed more than once. Kept the first position and ignored a sprite POS override.",
+          );
+        }
+      } else if (placement !== null) {
+        const existingSpriteIndex = spritePlacements.findIndex(
+          (entry) => entry.id === sprite.id,
+        );
+        if (existingSpriteIndex >= 0) {
+          warnings.push(
+            `Sprite ${sprite.id} was placed more than once. Kept the first position and ignored a duplicate POS directive.`,
+          );
+        } else {
+          spritePlacements.push(placement);
+        }
       }
-      index = parsedSprite.nextIndex;
+      index = nextIndex;
+      continue;
+    }
+
+    if (directive === ITEM_DIRECTIVE) {
+      const { item, nextIndex } = parseItemBlock(lines, index);
+      items.push(item);
+      index = nextIndex;
       continue;
     }
 
@@ -907,6 +1202,25 @@ export function parseBitsySource(rawSource: string): ImportResult {
       tile.frames.length > 0
         ? tile.frames
         : (drawings.get(tile.drawingId ?? "") ?? []),
+  }));
+  const resolvedSprites = sprites.map<BitsySprite>((sprite) => ({
+    ...sprite,
+    frames:
+      sprite.frames.length > 0
+        ? sprite.frames
+        : (drawings.get(sprite.drawingId ?? "") ?? []),
+    placementSource:
+      sprite.placementSource ??
+      (spritePlacements.some((placement) => placement.id === sprite.id)
+        ? "room"
+        : null),
+  }));
+  const resolvedItems = items.map<BitsyItem>((item) => ({
+    ...item,
+    frames:
+      item.frames.length > 0
+        ? item.frames
+        : (drawings.get(item.drawingId ?? "") ?? []),
   }));
 
   if (resolvedTiles.length === 0) {
@@ -921,7 +1235,6 @@ export function parseBitsySource(rawSource: string): ImportResult {
           end: roomBlockRanges[roomBlockRanges.length - 1].end,
         };
 
-  const warnings: string[] = [];
   if (roomFormat === 0) {
     warnings.push(
       "This source uses ROOM_FORMAT 0. Export will preserve it, but multi-character tile ids are less forgiving.",
@@ -943,8 +1256,12 @@ export function parseBitsySource(rawSource: string): ImportResult {
       roomSectionRange,
       rooms,
       tiles: resolvedTiles,
+      sprites: resolvedSprites,
+      items: resolvedItems,
       avatarStart,
       avatarStartSource,
+      spritePlacements,
+      itemPlacements,
     },
     warnings,
   };
@@ -956,18 +1273,31 @@ export function generateRoomsFromGrid(
   tileBehavior: TileBehaviorMap,
   width: number,
   height: number,
-  startCell: { x: number; y: number } | null,
+  roomSlots: RoomSlot[],
+  avatarPlacement: WorldPoint | null,
+  spritePlacements: WorldEntityPlacement[],
+  itemPlacements: WorldEntityPlacement[],
   roomSize = BITSY_MAP_SIZE,
 ): GeneratedRoom[] {
   const chunkColumns = Math.max(1, Math.ceil(width / roomSize));
   const chunkRows = Math.max(1, Math.ceil(height / roomSize));
   const generatedCount = chunkColumns * chunkRows;
-  const roomIds = buildRoomIdList(source, generatedCount);
+  const sourceRoomById = new Map(source.rooms.map((room) => [room.id, room]));
+  const slotList = roomSlots.map((slot) => ({ ...slot }));
+  const usedIds = new Set(slotList.map((slot) => slot.roomId));
   const rooms: GeneratedRoom[] = [];
+
+  while (slotList.length < generatedCount) {
+    slotList.push({
+      roomId: nextAvailableRoomId(usedIds),
+      templateRoomId: source.rooms[0]?.id ?? null,
+    });
+  }
 
   for (let chunkY = 0; chunkY < chunkRows; chunkY += 1) {
     for (let chunkX = 0; chunkX < chunkColumns; chunkX += 1) {
       const roomIndex = chunkY * chunkColumns + chunkX;
+      const slot = slotList[roomIndex];
       const tilemap = buildChunkTilemap(cells, width, chunkX, chunkY, roomSize);
       const walls = collectUniqueIds(
         tilemap.flatMap((row, rowIndex) =>
@@ -982,27 +1312,45 @@ export function generateRoomsFromGrid(
         ),
       );
 
+      const chunkOriginX = chunkX * roomSize;
+      const chunkOriginY = chunkY * roomSize;
+      const toLocalPlacement = <T extends WorldPoint>(placement: T) => ({
+        x: placement.x - chunkOriginX,
+        y: placement.y - chunkOriginY,
+      });
+      const isInsideChunk = (placement: WorldPoint) =>
+        placement.x >= chunkOriginX &&
+        placement.y >= chunkOriginY &&
+        placement.x < chunkOriginX + roomSize &&
+        placement.y < chunkOriginY + roomSize;
+
       rooms.push({
-        id: roomIds[roomIndex],
-        sourceRoom: source.rooms[roomIndex] ?? source.rooms[0] ?? null,
+        id: slot?.roomId ?? nextAvailableRoomId(usedIds),
+        sourceRoom:
+          sourceRoomById.get(slot?.templateRoomId ?? "") ??
+          sourceRoomById.get(slot?.roomId ?? "") ??
+          source.rooms[0] ??
+          null,
         tilemap,
         walls,
         exits: [],
-        avatarStart: null,
+        spritePlacements: spritePlacements
+          .filter((placement) => isInsideChunk(placement))
+          .map((placement) => ({
+            id: placement.id,
+            ...toLocalPlacement(placement),
+          })),
+        itemPlacements: itemPlacements
+          .filter((placement) => isInsideChunk(placement))
+          .map((placement) => ({
+            id: placement.id,
+            ...toLocalPlacement(placement),
+          })),
+        avatarStart:
+          avatarPlacement && isInsideChunk(avatarPlacement)
+            ? toLocalPlacement(avatarPlacement)
+            : null,
       });
-    }
-  }
-
-  if (startCell) {
-    const startChunkX = Math.floor(startCell.x / roomSize);
-    const startChunkY = Math.floor(startCell.y / roomSize);
-    const roomIndex = startChunkY * chunkColumns + startChunkX;
-    const room = rooms[roomIndex];
-    if (room) {
-      room.avatarStart = {
-        x: startCell.x % roomSize,
-        y: startCell.y % roomSize,
-      };
     }
   }
 
@@ -1131,6 +1479,7 @@ export function generateRoomsFromGrid(
 function serializeRoom(room: GeneratedRoom, source: BitsySource): string[] {
   const lines: string[] = [];
   const keyword = source.roomKeyword;
+  const spriteDefinitions = new Map(source.sprites.map((sprite) => [sprite.id, sprite]));
 
   lines.push(`${keyword} ${room.id}`);
   for (const row of room.tilemap) {
@@ -1145,6 +1494,18 @@ function serializeRoom(room: GeneratedRoom, source: BitsySource): string[] {
     lines.push(
       `EXT ${exit.x},${exit.y} ${exit.destRoomId} ${exit.destX},${exit.destY}`,
     );
+  }
+
+  for (const sprite of room.spritePlacements) {
+    if (spriteDefinitions.get(sprite.id)?.placementSource === "sprite_pos") {
+      continue;
+    }
+
+    lines.push(`SPR ${sprite.id} ${sprite.x},${sprite.y}`);
+  }
+
+  for (const item of room.itemPlacements) {
+    lines.push(`ITM ${item.id} ${item.x},${item.y}`);
   }
 
   if (
@@ -1173,45 +1534,122 @@ function serializeRoom(room: GeneratedRoom, source: BitsySource): string[] {
   return lines;
 }
 
-function patchAvatarSpriteBlock(
-  source: BitsySource,
-  avatarRoomId: string,
-  avatarX: number,
-  avatarY: number,
-): string[] {
-  if (source.avatarStartSource?.kind !== "sprite_pos") {
-    return source.lines;
-  }
+type SpritePosPatch = {
+  roomId: string;
+  x: number;
+  y: number;
+};
 
-  const { start, end } = source.avatarStartSource.blockRange;
-  const blockLines = source.lines.slice(start, end);
+function rewriteSpriteBlock(
+  blockLines: string[],
+  placement: SpritePosPatch | null,
+  usePos: boolean,
+): string[] {
   const nextBlockLines: string[] = [];
   let insertedPos = false;
+  let reachedBlankLine = false;
 
   for (const line of blockLines) {
-    if (getDirective(line) === "POS") {
-      nextBlockLines.push(`POS ${avatarRoomId} ${avatarX},${avatarY}`);
+    if (!reachedBlankLine && line.trim().length === 0 && usePos && placement) {
+      nextBlockLines.push(`POS ${placement.roomId} ${placement.x},${placement.y}`);
       insertedPos = true;
+      reachedBlankLine = true;
+      nextBlockLines.push(line);
       continue;
+    }
+
+    if (getDirective(line) === "POS") {
+      if (usePos && placement) {
+        nextBlockLines.push(`POS ${placement.roomId} ${placement.x},${placement.y}`);
+        insertedPos = true;
+      }
+      continue;
+    }
+
+    if (line.trim().length === 0) {
+      reachedBlankLine = true;
     }
 
     nextBlockLines.push(line);
   }
 
-  if (!insertedPos) {
-    const insertionIndex = Math.max(1, nextBlockLines.length - 1);
+  if (usePos && placement && !insertedPos) {
+    const insertionIndex = Math.max(1, nextBlockLines.length);
     nextBlockLines.splice(
       insertionIndex,
       0,
-      `POS ${avatarRoomId} ${avatarX},${avatarY}`,
+      `POS ${placement.roomId} ${placement.x},${placement.y}`,
     );
   }
 
-  return [
-    ...source.lines.slice(0, start),
-    ...nextBlockLines,
-    ...source.lines.slice(end),
-  ];
+  return nextBlockLines;
+}
+
+function patchSpritePlacementBlocks(
+  source: BitsySource,
+  rooms: GeneratedRoom[],
+): string[] {
+  const spritePlacementMap = new Map(
+    rooms.flatMap((room) =>
+      room.spritePlacements.map((placement) => [
+        placement.id,
+        {
+          roomId: room.id,
+          x: placement.x,
+          y: placement.y,
+        } satisfies SpritePosPatch,
+      ]),
+    ),
+  );
+  const avatarRoom = rooms.find((room) => room.avatarStart !== null) ?? null;
+  const avatarPlacement =
+    avatarRoom && avatarRoom.avatarStart
+      ? {
+          roomId: avatarRoom.id,
+          x: avatarRoom.avatarStart.x,
+          y: avatarRoom.avatarStart.y,
+        }
+      : null;
+  const patchesByStart = new Map<
+    number,
+    { end: number; placement: SpritePosPatch | null; usePos: boolean }
+  >();
+
+  for (const sprite of source.sprites) {
+    const placement = sprite.isAvatar
+      ? avatarPlacement
+      : (spritePlacementMap.get(sprite.id) ?? null);
+    const usePos = sprite.isAvatar
+      ? source.avatarStartSource?.kind === "sprite_pos"
+      : sprite.placementSource === "sprite_pos";
+    patchesByStart.set(sprite.blockRange.start, {
+      end: sprite.blockRange.end,
+      placement,
+      usePos,
+    });
+  }
+
+  const lines: string[] = [];
+  let index = 0;
+  while (index < source.lines.length) {
+    const patch = patchesByStart.get(index);
+    if (!patch) {
+      lines.push(source.lines[index]);
+      index += 1;
+      continue;
+    }
+
+    lines.push(
+      ...rewriteSpriteBlock(
+        source.lines.slice(index, patch.end),
+        patch.placement,
+        patch.usePos,
+      ),
+    );
+    index = patch.end;
+  }
+
+  return lines;
 }
 
 export function exportMapOnlyGameData(
@@ -1220,7 +1658,10 @@ export function exportMapOnlyGameData(
   tileBehavior: TileBehaviorMap,
   width: number,
   height: number,
-  startCell: { x: number; y: number } | null,
+  roomSlots: RoomSlot[],
+  avatarPlacement: WorldPoint | null,
+  spritePlacements: WorldEntityPlacement[],
+  itemPlacements: WorldEntityPlacement[],
   roomSize = BITSY_MAP_SIZE,
 ): string {
   const rooms = generateRoomsFromGrid(
@@ -1229,20 +1670,14 @@ export function exportMapOnlyGameData(
     tileBehavior,
     width,
     height,
-    startCell,
+    roomSlots,
+    avatarPlacement,
+    spritePlacements,
+    itemPlacements,
     roomSize,
   );
   const serializedRooms = rooms.flatMap((room) => serializeRoom(room, source));
-  const avatarRoom = rooms.find((room) => room.avatarStart !== null) ?? null;
-  const baseLines =
-    avatarRoom && avatarRoom.avatarStart
-      ? patchAvatarSpriteBlock(
-          source,
-          avatarRoom.id,
-          avatarRoom.avatarStart.x,
-          avatarRoom.avatarStart.y,
-        )
-      : source.lines;
+  const baseLines = patchSpritePlacementBlocks(source, rooms);
 
   if (source.roomSectionRange === null) {
     return [...serializedRooms, ...baseLines].join("\n");
